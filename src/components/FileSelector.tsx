@@ -16,7 +16,7 @@ const FileSelector: React.FC<FileSelectorProps> = ({ onFilesSelected }) => {
     const files = e.target.files;
     if (files && files.length > 0) {
       onFilesSelected(files);
-      // Reset the input value to allow selecting the same file again
+      // Reset the input value to allow selecting the same file again.
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
