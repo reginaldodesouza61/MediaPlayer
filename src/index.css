@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom scrollbar styles */
+.scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+  background: rgba(31, 41, 55, 0.5);
+  border-radius: 4px;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #8b5cf6, #6366f1);
+  border-radius: 4px;
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #7c3aed, #4f46e5);
+}
+
+/* Input range styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  height: 8px;
+  background: rgba(55, 65, 81, 0.6);
+  border-radius: 5px;
+  background-image: linear-gradient(to right, #8b5cf6, #6366f1);
+  background-size: 0% 100%;
+  background-repeat: no-repeat;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+input[type="range"]::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 0 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Base styles */
+body {
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+/* Animation for audio visualizer */
+@keyframes pulse {
+  0% {
+    transform: scaleY(1);
+  }
+  50% {
+    transform: scaleY(1.5);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
