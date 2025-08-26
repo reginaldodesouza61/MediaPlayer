@@ -4,7 +4,6 @@ import {
   FolderOpen,
   Moon,
   Sun,
-  Music,
   ListMusic
 } from 'lucide-react';
 import { useMediaLibrary } from './hooks/useMediaLibrary';
@@ -14,31 +13,30 @@ import YoutubeInput from './components/YoutubeInput';
 import Playlist from './components/Playlist';
 import MediaPlayer from './components/MediaPlayer';
 import AuthButton from './components/AuthButton';
+import AuthForm from './components/AuthForm';
 
 function App() {
   const {
     currentPlaylist,
     currentMedia,
     isPlaying,
-    loading,
+    loading: mediaLoading,
     addLocalMedia,
     addYoutubeVideo,
     removeMediaItem,
     playMedia,
-    togglePlayPause,
     playNext,
     playPrevious,
     setIsPlaying
   } = useMediaLibrary();
 
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { user, loading: authLoading, isAuthenticated } = useAuth();
   const [darkMode, setDarkMode] = useState(true);
 
-  const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
-  };
+  const toggleDarkMode = () => setDarkMode(!darkMode);
 
-  if (authLoading || loading) {
+  // Se estiver carregando a autenticação ou a biblioteca de mídia
+  if (authLoading || mediaLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-indigo-950">
         <div className="text-white text-center">
@@ -49,6 +47,16 @@ function App() {
     );
   }
 
+  // Se não estiver autenticado, mostra o formulário de login
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-indigo-950">
+        <AuthForm />
+      </div>
+    );
+  }
+
+  // Renderiza o app completo apenas se autenticado
   return (
     <div className={`min-h-screen transition-colors duration-300 ${
       darkMode ? 'bg-gradient-to-br from-gray-900 to-indigo-950' : 'bg-gradient-to-br from-blue-50 to-indigo-100'
@@ -90,7 +98,7 @@ function App() {
               <MediaPlayer
                 mediaItem={currentMedia}
                 isPlaying={isPlaying}
-                onPlayPauseChange={(playing) => setIsPlaying(playing)}
+                onPlayPauseChange={setIsPlaying}
                 onNextTrack={playNext}
                 onPreviousTrack={playPrevious}
               />
@@ -113,7 +121,7 @@ function App() {
                   <h3 className={`text-sm font-medium mb-2 ${
                     darkMode ? 'text-gray-300' : 'text-gray-600'
                   }`}>
-                    Adicionar video do YouTube
+                    Adicionar vídeo do YouTube
                   </h3>
                   <YoutubeInput onYoutubeAdded={addYoutubeVideo} />
                 </div>
@@ -130,14 +138,14 @@ function App() {
                 darkMode ? 'text-white' : 'text-gray-800'
               }`}>
                 <ListMusic size={20} className={darkMode ? 'text-purple-400' : 'text-purple-500'} />
-                {currentPlaylist.name}
+                {currentPlaylist?.name || "Minha Playlist"}
               </h2>
 
               <Playlist
-                items={currentPlaylist.items}
+                items={currentPlaylist?.items || []}
                 currentItemId={currentMedia?.id}
-                onItemSelect={(id) => playMedia(id)}
-                onItemRemove={(id) => removeMediaItem(id)}
+                onItemSelect={playMedia}
+                onItemRemove={removeMediaItem}
               />
             </div>
           </div>
