@@ -1,6 +1,17 @@
 import { useState, useEffect } from 'react';
 import { MediaItem, Playlist } from '../types';
-import { supabase } from '../lib/supabase';
+import { auth, db } from '../lib/firebase';
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+  query,
+  where,
+  getDoc,
+} from 'firebase/firestore';
 
 // Função para validar UUID
 function isUuid(id: string) {
@@ -21,11 +32,9 @@ export const useMediaLibrary = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // Carregar playlists do Supabase ao autenticar
+  // Carregar playlists do Firestore ao autenticar
   useEffect(() => {
-    const loadPlaylists = async () => {
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData?.user;
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
       if (!user) {
         setPlaylists([DEFAULT_PLAYLIST]);
         setCurrentPlaylist(DEFAULT_PLAYLIST);
@@ -35,46 +44,30 @@ export const useMediaLibrary = () => {
         return;
       }
 
-      const { data: playlistsData, error: playlistsError } = await supabase
-        .from('playlists')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
+      // Busca playlists do usuário
+      const playlistsRef = collection(db, 'playlists');
+      const q = query(playlistsRef, where('user_id', '==', user.uid));
+      const querySnapshot = await getDocs(q);
 
-      if (playlistsError) {
-        console.error('Error loading playlists:', playlistsError);
-        return;
+      const playlistsWithItems: Playlist[] = [];
+      for (const docSnap of querySnapshot.docs) {
+        const playlistData = docSnap.data() as Playlist;
+        // Busca os itens da playlist
+        const itemsRef = collection(db, 'playlists', docSnap.id, 'items');
+        const itemsSnap = await getDocs(itemsRef);
+        const items: MediaItem[] = itemsSnap.docs.map(d => d.data() as MediaItem);
+        playlistsWithItems.push({
+          ...playlistData,
+          id: docSnap.id,
+          items,
+        });
       }
 
-      const playlistsWithItems = await Promise.all(
-        (playlistsData || []).map(async (playlist) => {
-          const { data: items, error: itemsError } = await supabase
-            .from('playlist_items')
-            .select('*')
-            .eq('playlist_id', playlist.id)
-            .order('created_at', { ascending: true });
-
-          if (itemsError) {
-            console.error('Error loading playlist items:', itemsError);
-            return null;
-          }
-
-          return {
-            id: playlist.id,
-            name: playlist.name,
-            items: items || [],
-            user_id: playlist.user_id
-          };
-        })
-      );
-
-      const validPlaylists = playlistsWithItems.filter((p): p is Playlist => p !== null);
-
-      if (validPlaylists.length > 0) {
-        setPlaylists(validPlaylists);
-        setCurrentPlaylist(validPlaylists[0]);
-        if (validPlaylists[0].items.length > 0) {
-          setCurrentMedia(validPlaylists[0].items[0]);
+      if (playlistsWithItems.length > 0) {
+        setPlaylists(playlistsWithItems);
+        setCurrentPlaylist(playlistsWithItems[0]);
+        if (playlistsWithItems[0].items.length > 0) {
+          setCurrentMedia(playlistsWithItems[0].items[0]);
           setIsPlaying(true);
         }
       } else {
@@ -84,62 +77,34 @@ export const useMediaLibrary = () => {
       }
 
       setLoading(false);
-    };
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_IN') {
-        loadPlaylists();
-      } else if (event === 'SIGNED_OUT') {
-        setPlaylists([DEFAULT_PLAYLIST]);
-        setCurrentPlaylist(DEFAULT_PLAYLIST);
-        setCurrentMedia(null);
-        setIsPlaying(false);
-      }
     });
 
-    loadPlaylists();
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
+    return () => unsubscribe();
   }, []);
 
-  // Salvar playlist no Supabase
+  // Salvar playlist no Firestore
   const savePlaylist = async (playlist: Playlist) => {
     if (!playlist.user_id || !isUuid(playlist.id)) {
       console.warn('Playlist sem user_id ou id inválido:', playlist);
       return;
     }
 
-    const { data: playlistData, error: playlistError } = await supabase
-      .from('playlists')
-      .upsert({
-        id: playlist.id,
-        name: playlist.name,
-        user_id: playlist.user_id
-      })
-      .select()
-      .single();
+    // Salva playlist
+    await setDoc(doc(db, 'playlists', playlist.id), {
+      id: playlist.id,
+      name: playlist.name,
+      user_id: playlist.user_id,
+    });
 
-    if (playlistError) {
-      console.error('Error saving playlist:', playlistError);
-      alert(playlistError.message);
-      return;
+    // Salva itens da playlist (subcoleção)
+    const itemsRef = collection(db, 'playlists', playlist.id, 'items');
+    // Remove todos os itens antigos antes de salvar os novos
+    const oldItemsSnap = await getDocs(itemsRef);
+    for (const itemDoc of oldItemsSnap.docs) {
+      await deleteDoc(itemDoc.ref);
     }
-
-    // Salvar itens da playlist
-    const { error: itemsError } = await supabase
-      .from('playlist_items')
-      .upsert(
-        playlist.items.map(item => ({
-          ...item,
-          playlist_id: playlistData.id
-        }))
-      );
-
-    if (itemsError) {
-      console.error('Error saving playlist items:', itemsError);
-      alert(itemsError.message);
+    for (const item of playlist.items) {
+      await setDoc(doc(itemsRef, item.id), item);
     }
   };
 
@@ -169,11 +134,16 @@ export const useMediaLibrary = () => {
 
       // Se estiver na playlist padrão, cria uma nova playlist local
       if (currentPlaylist.id === 'default') {
+        const user = auth.currentUser;
+        if (!user) {
+          alert('Usuário não autenticado');
+          return;
+        }
         updatedPlaylist = {
           id: crypto.randomUUID(),
           name: 'Minha Playlist',
           items: [],
-          user_id: 'local'
+          user_id: user.uid
         };
         setPlaylists(prev => [...prev, updatedPlaylist]);
         setCurrentPlaylist(updatedPlaylist);
@@ -195,6 +165,9 @@ export const useMediaLibrary = () => {
       if (!currentMedia) {
         setCurrentMedia(newItems[0]);
       }
+
+      // Salva playlist no Firestore
+      await savePlaylist(updatedPlaylist);
     }
   };
 
@@ -272,18 +245,17 @@ export const useMediaLibrary = () => {
       setIsPlaying(false);
     }
 
-    await supabase
-      .from('playlist_items')
-      .delete()
-      .eq('id', itemId);
-
-    await savePlaylist(updatedPlaylist);
+    // Remove do Firestore
+    const user = auth.currentUser;
+    if (user && currentPlaylist.id !== 'default') {
+      await deleteDoc(doc(db, 'playlists', currentPlaylist.id, 'items', itemId));
+      await savePlaylist(updatedPlaylist);
+    }
   };
 
   // Criar nova playlist
   const createPlaylist = async (name: string) => {
-    const { data: userData } = await supabase.auth.getUser();
-    const user = userData?.user;
+    const user = auth.currentUser;
     if (!user) {
       alert('Usuário não autenticado');
       return;
@@ -293,7 +265,7 @@ export const useMediaLibrary = () => {
       id: crypto.randomUUID(),
       name,
       items: [],
-      user_id: user.id
+      user_id: user.uid
     };
 
     setPlaylists(prev => [...prev, newPlaylist]);
@@ -328,30 +300,13 @@ export const useMediaLibrary = () => {
     }
   };
 
-  // Próxima mídia
-  const playNext = () => {
-    if (!currentMedia || currentPlaylist.items.length <= 1) return;
-
-    const currentIndex = currentPlaylist.items.findIndex(item => item.id === currentMedia.id);
-    const nextIndex = (currentIndex + 1) % currentPlaylist.items.length;
-    setCurrentMedia(currentPlaylist.items[nextIndex]);
-  };
-
-  // Mídia anterior
-  const playPrevious = () => {
-    if (!currentMedia || currentPlaylist.items.length <= 1) return;
-
-    const currentIndex = currentPlaylist.items.findIndex(item => item.id === currentMedia.id);
-    const prevIndex = (currentIndex - 1 + currentPlaylist.items.length) % currentPlaylist.items.length;
-    setCurrentMedia(currentPlaylist.items[prevIndex]);
-  };
-
   return {
     playlists,
     currentPlaylist,
     currentMedia,
     isPlaying,
     loading,
+    savePlaylist,
     addLocalMedia,
     addYoutubeVideo,
     removeMediaItem,
@@ -359,8 +314,5 @@ export const useMediaLibrary = () => {
     changePlaylist,
     playMedia,
     togglePlayPause,
-    playNext,
-    playPrevious,
-    setIsPlaying
   };
 };

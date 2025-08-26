@@ -1,11 +1,17 @@
 import React, { useState } from 'react';
 import { LogIn, LogOut, Mail } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { auth } from '../lib/firebase';
+import { sendSignInLinkToEmail, signOut, isSignInWithEmailLink, signInWithEmailLink } from 'firebase/auth';
 
 interface AuthButtonProps {
   isAuthenticated: boolean;
   onAuthChange: () => void;
 }
+
+const actionCodeSettings = {
+  url: window.location.origin,
+  handleCodeInApp: true,
+};
 
 const AuthButton: React.FC<AuthButtonProps> = ({ isAuthenticated, onAuthChange }) => {
   const [email, setEmail] = useState('');
@@ -14,13 +20,13 @@ const AuthButton: React.FC<AuthButtonProps> = ({ isAuthenticated, onAuthChange }
 
   const handleAuth = async () => {
     if (isAuthenticated) {
-      await supabase.auth.signOut();
+      await signOut(auth);
       setShowEmailInput(false);
       setMessage('');
+      onAuthChange();
     } else {
       setShowEmailInput(true);
     }
-    onAuthChange();
   };
 
   const handleEmailSignIn = async (e: React.FormEvent) => {
@@ -28,23 +34,31 @@ const AuthButton: React.FC<AuthButtonProps> = ({ isAuthenticated, onAuthChange }
     setMessage('');
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.origin
-        }
-      });
-
-      if (error) {
-        setMessage('Error: ' + error.message);
-      } else {
-        setMessage('Verifique seu email para o link de login!');
-        setShowEmailInput(false);
-      }
-    } catch (error) {
-      setMessage('Ocorreu um erro inesperado');
+      await sendSignInLinkToEmail(auth, email, actionCodeSettings);
+      window.localStorage.setItem('emailForSignIn', email);
+      setMessage('Verifique seu email para o link de login!');
+      setShowEmailInput(false);
+    } catch (error: any) {
+      setMessage('Erro: ' + (error.message || 'Ocorreu um erro inesperado'));
     }
   };
+
+  // Checa se está acessando pelo link mágico do e-mail
+  React.useEffect(() => {
+    if (isSignInWithEmailLink(auth, window.location.href)) {
+      let email = window.localStorage.getItem('emailForSignIn') || '';
+      if (!email) {
+        email = window.prompt('Digite seu e-mail para login:') || '';
+      }
+      signInWithEmailLink(auth, email, window.location.href)
+        .then(() => {
+          window.localStorage.removeItem('emailForSignIn');
+          onAuthChange();
+        })
+        .catch(() => {});
+    }
+    // eslint-disable-next-line
+  }, []);
 
   if (showEmailInput && !isAuthenticated) {
     return (
@@ -67,7 +81,7 @@ const AuthButton: React.FC<AuthButtonProps> = ({ isAuthenticated, onAuthChange }
           </button>
         </form>
         {message && (
-          <p className={`mt-2 text-sm ${message.includes('Error') ? 'text-red-400' : 'text-green-400'}`}>
+          <p className={`mt-2 text-sm ${message.includes('Erro') ? 'text-red-400' : 'text-green-400'}`}>
             {message}
           </p>
         )}
